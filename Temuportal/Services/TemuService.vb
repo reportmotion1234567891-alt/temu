@@ -1193,6 +1193,7 @@ Public Class TemuService
                 imgArr.Add(uploadimage5)
             End If
 
+            'Following Images are our advertising images, which do not need to be checked if they exist
             Dim uploadedImage6 = Await UploadImage(p.ImageUrl6, catId)
             Dim uploadedImage7 = Await UploadImage(p.ImageUrl7, catId)
             Dim uploadedImage8 = Await UploadImage(p.ImageUrl8, catId)
