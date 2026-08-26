@@ -15,9 +15,27 @@ Public Class Form1
 
     Private Async Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         Button1.Enabled = False
-        Await TemuService.BulkUploadAll(500)
+        Try
+            Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
+
+            Console.WriteLine("--- Step 1: Price + Stock sync ---")
+            Await TemuService.SyncPricesAndStock()
+
+            Console.WriteLine("--- Step 2: Create new products ---")
+            Await TemuService.BulkUploadAll(Integer.MaxValue)
+
+            Console.WriteLine("--- Step 3: GPSR backfill ---")
+            Await TemuService.BackfillAllGpsr()
+
+            Console.WriteLine("--- Step 4: Energy label backfill ---")
+            Await TemuService.BackfillAllEnergyLabels()
+
+            Console.WriteLine("=== PRODUCT INTEGRATION DONE ===")
+        Catch ex As Exception
+            Console.WriteLine("Integration error: " & ex.Message)
+        End Try
         Button1.Enabled = True
-        MessageBox.Show("Bulk run done - check console for ok/fail")
+        MessageBox.Show("Product integration finished - check console")
     End Sub
     Private Async Sub GpsrBtn_Click(sender As Object, e As EventArgs) Handles GpsrBtn.Click
         GpsrBtn.Enabled = False
@@ -33,6 +51,7 @@ Public Class Form1
         ErpelBtn.Enabled = True
         MessageBox.Show(res.ToString())
     End Sub
+
     Private Async Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
         Button2.Enabled = False
         Dim content As String = ""

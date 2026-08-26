@@ -6,7 +6,7 @@ Imports Newtonsoft.Json.Linq
 
 Public Class TemuPriceService
 
-    Private Shared Function NormalizePrice(raw As String) As String
+    Public Shared Function NormalizePrice(raw As String) As String
         If String.IsNullOrWhiteSpace(raw) Then Return ""
         Return raw.Trim().Replace(",", ".")
     End Function

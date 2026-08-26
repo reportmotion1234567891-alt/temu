@@ -1733,7 +1733,117 @@ Public Class TemuService
     Public Shared Async Function SendAmountQueryV2(req As JObject) As Task(Of JObject)
         Return Await SendRequestFlat("temu.order.amount.v2.query", req)
     End Function
+    Public Shared Async Function UpdateStock(goodsId As Long, skuId As Long, targetStock As Integer) As Task(Of Boolean)
+        Dim target As New JObject()
+        target("skuId") = skuId
+        target("stockTarget") = targetStock
 
+        Dim req As New JObject()
+        req("goodsId") = goodsId
+        req("stockType") = 0
+        req("skuStockTargetList") = New JArray(target)
+        req("requestUniqueKey") = goodsId.ToString() & "_" & skuId.ToString() & "_" & DateTime.Now.Ticks.ToString()
+
+        Dim res = Await SendRequestFlat("bg.local.goods.stock.edit", req)
+
+        If res("success") IsNot Nothing AndAlso res("success").Value(Of Boolean)() Then
+            Dim r = TryCast(res("result"), JObject)
+            If r IsNot Nothing Then
+                Dim list = TryCast(r("skuStockEditStatusInfoList"), JArray)
+                If list IsNot Nothing AndAlso list.Count > 0 Then
+                    Dim first = TryCast(list(0), JObject)
+                    If first IsNot Nothing AndAlso first("stockEditStatus") IsNot Nothing Then
+                        Return first("stockEditStatus").Value(Of Boolean)()
+                    End If
+                End If
+            End If
+            Return True
+        End If
+
+        Console.WriteLine($"Stock edit FAILED goods {goodsId} sku {skuId} -> {targetStock} : [{res("errorCode")}] {res("errorMsg")}")
+        Return False
+    End Function
+
+    Private Shared Function GetStockFromCsv(p As CsvProduct) As Integer
+        Dim raw As String = p.Quantity
+        If String.IsNullOrWhiteSpace(raw) Then Return 0
+        Dim n As Integer
+        If Integer.TryParse(raw.Trim(), n) Then Return n
+        Return 0
+    End Function
+
+    Public Shared Async Function SyncPricesAndStock() As Task
+        Console.WriteLine("=== SYNC PRICES + STOCK ===")
+        Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
+        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
+        If Not IO.File.Exists(createdPath) Then
+            Console.WriteLine("created.txt not found")
+            Return
+        End If
+
+        Dim products = Await CsvParser.DownloadAndParse()
+
+        Dim minRows As Integer = 1000
+        Dim cfgMin = ConfigurationManager.AppSettings("SyncMinFeedRows")
+        Dim parsedMin As Integer
+        If Not String.IsNullOrEmpty(cfgMin) AndAlso Integer.TryParse(cfgMin, parsedMin) Then minRows = parsedMin
+        If products Is Nothing OrElse products.Count < minRows Then
+            Console.WriteLine($"ABORT SYNC: feed only has {If(products Is Nothing, 0, products.Count)} rows (min {minRows}) - possible bad/partial download, not zeroing stock")
+            Return
+        End If
+
+        Dim bySku As New Dictionary(Of String, CsvProduct)(StringComparer.OrdinalIgnoreCase)
+        For Each pr In products
+            If Not String.IsNullOrWhiteSpace(pr.Sku) Then bySku(pr.Sku.Trim()) = pr
+        Next
+
+        Dim priceOk = 0, priceFail = 0, stockOk = 0, stockFail = 0, soldOut = 0
+        Dim seen As New HashSet(Of String)
+
+        For Each line In IO.File.ReadAllLines(createdPath)
+            Dim parts = line.Split(","c)
+            If parts.Length < 2 Then Continue For
+            Dim sku = parts(0).Trim()
+            Dim gidStr = parts(1).Trim()
+            If seen.Contains(gidStr) Then Continue For
+            seen.Add(gidStr)
+
+            Dim goodsId As Long
+            If Not Long.TryParse(gidStr, goodsId) Then Continue For
+
+            Dim inFeed = bySku.ContainsKey(sku)
+            Dim p As CsvProduct = Nothing
+            If inFeed Then p = bySku(sku)
+
+            Dim resolved = Await TemuPriceService.ResolveSkuAndStatus(goodsId)
+            Dim skuId = resolved.skuId
+            If skuId = 0 Then Continue For
+
+            Dim qty As Integer = 0
+            If inFeed Then qty = GetStockFromCsv(p)
+
+            If (Not inFeed) OrElse qty <= 0 Then
+                Dim z = Await UpdateStock(goodsId, skuId, 0)
+                If z Then soldOut += 1
+                Console.WriteLine(sku & " -> SOLD OUT (stock 0)")
+                Await Task.Delay(400)
+                Continue For
+            End If
+
+            Dim price = TemuPriceService.NormalizePrice(p.Price)
+            If price <> "" Then
+                Dim pc = Await TemuPriceService.ChangeSkuPrice(goodsId, skuId, price, "ERP sync")
+                If pc = 0 Then priceOk += 1 Else priceFail += 1
+            End If
+
+            Dim sc = Await UpdateStock(goodsId, skuId, qty)
+            If sc Then stockOk += 1 Else stockFail += 1
+
+            Await Task.Delay(400)
+        Next
+
+        Console.WriteLine($"=== SYNC DONE: priceOK={priceOk} priceFail={priceFail} stockOK={stockOk} stockFail={stockFail} soldOut={soldOut} ===")
+    End Function
     Private Shared Function CentsToStr(obj As JObject, field As String) As String
         If obj Is Nothing Then Return ""
         Dim node = TryCast(obj(field), JObject)
