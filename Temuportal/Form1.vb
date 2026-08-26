@@ -4,13 +4,42 @@ Imports Newtonsoft.Json.Linq
 
 Public Class Form1
 
+    Public productRun As Boolean = False
+
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Console.WriteLine("Application started")
 
         TokenService.LoadToken()
+        StartOrdersTimer()
+        StartProductTimer()
 
         Console.WriteLine("Access Token Loaded:")
         Console.WriteLine(TokenStorage.AccessToken)
+    End Sub
+
+    Private Async Sub runProductIntegration()
+        productRun = True
+        Try
+            Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
+
+            Console.WriteLine("--- Step 1: Price + Stock sync ---")
+            Await TemuService.SyncPricesAndStock()
+
+            Console.WriteLine("--- Step 2: Create new products ---")
+            Await TemuService.BulkUploadAll(Integer.MaxValue)
+
+            Console.WriteLine("--- Step 3: GPSR backfill ---")
+            Await TemuService.BackfillAllGpsr()
+
+            Console.WriteLine("--- Step 4: Energy label backfill ---")
+            Await TemuService.BackfillAllEnergyLabels()
+
+            Console.WriteLine("=== PRODUCT INTEGRATION DONE ===")
+        Catch ex As Exception
+            Console.WriteLine("Integration error: " & ex.Message)
+        Finally
+            productRun = False
+        End Try
     End Sub
 
     Private Async Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
@@ -103,6 +132,16 @@ Public Class Form1
         OrdersTimer.Start()
     End Sub
 
+    Private Sub StartProductTimer()
+        Dim minutes As Integer = 10
+        Dim cfg As String = System.Configuration.ConfigurationManager.AppSettings("ProductIntegrationMinutes")
+        If Not String.IsNullOrEmpty(cfg) Then Integer.TryParse(cfg, minutes)
+        If minutes < 1 Then minutes = 30
+        ProductIntegrationTimer.Interval = minutes * 60 * 1000
+        ProductIntegrationTimer.Start()
+    End Sub
+
+
     Private Sub OrdersTimer_Tick(sender As Object, e As EventArgs) Handles OrdersTimer.Tick
         OrdersTimer.Stop()
         RunOrderExportCycle()
@@ -134,5 +173,9 @@ Public Class Form1
         Await TemuService.BackfillAllEnergyLabels()
         btnEnergyBatch.Enabled = True
         MessageBox.Show("Backfill done - check console for ok/fail/skip counts")
+    End Sub
+
+    Private Sub ProductIntegrationTimer_Tick(sender As Object, e As EventArgs) Handles ProductIntegrationTimer.Tick
+        runProductIntegration()
     End Sub
 End Class

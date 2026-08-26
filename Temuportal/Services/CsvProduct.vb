@@ -5,7 +5,15 @@
     Public Property Manufacturer As String
     Public Property Title As String
     Public Property Description As String
-    Public Property ImageUrl As String
+    Public Property ImageUrl1 As String
+    Public Property ImageUrl2 As String
+    Public Property ImageUrl3 As String
+    Public Property ImageUrl4 As String
+    Public Property ImageUrl5 As String
+    Public Property ImageUrl6 As String
+    Public Property ImageUrl7 As String
+    Public Property ImageUrl8 As String
+    Public Property ImageUrl9 As String
     Public Property EnergyLabelUrl As String
     Public Property Weight As String
     Public Property WeightUnit As String

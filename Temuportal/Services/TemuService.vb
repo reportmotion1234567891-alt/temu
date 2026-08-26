@@ -1,5 +1,6 @@
 ﻿Imports System.Configuration
 Imports System.Linq
+Imports System.Net
 Imports System.Net.Http
 Imports System.Security.Cryptography
 Imports System.Text
@@ -1168,7 +1169,39 @@ Public Class TemuService
                 Console.WriteLine($"ForceRecreate - ignoring existing goodsId {existingId.Value}")
             End If
 
-            Dim uploadedImage = Await UploadImage(p.ImageUrl, catId)
+            Dim imgArr As New List(Of String)
+            Dim uploadedImageMain = Await UploadImage(p.ImageUrl1, catId)
+
+            imgArr.Add(uploadedImageMain)
+
+            Dim uploadimage2, uploadimage3, uploadimage4, uploadimage5
+
+            If Not String.IsNullOrWhiteSpace(p.ImageUrl2) Then
+                uploadimage2 = Await UploadImage(p.ImageUrl2, catId)
+                imgArr.Add(uploadimage2)
+            End If
+            If Not String.IsNullOrWhiteSpace(p.ImageUrl3) Then
+                uploadimage3 = Await UploadImage(p.ImageUrl3, catId)
+                imgArr.Add(uploadimage3)
+            End If
+            If Not String.IsNullOrWhiteSpace(p.ImageUrl4) Then
+                uploadimage4 = Await UploadImage(p.ImageUrl4, catId)
+                imgArr.Add(uploadimage4)
+            End If
+            If Not String.IsNullOrWhiteSpace(p.ImageUrl5) Then
+                uploadimage5 = Await UploadImage(p.ImageUrl5, catId)
+                imgArr.Add(uploadimage5)
+            End If
+
+            Dim uploadedImage6 = Await UploadImage(p.ImageUrl6, catId)
+            Dim uploadedImage7 = Await UploadImage(p.ImageUrl7, catId)
+            Dim uploadedImage8 = Await UploadImage(p.ImageUrl8, catId)
+            Dim uploadedImage9 = Await UploadImage(p.ImageUrl9, catId)
+
+            imgArr.Add(uploadedImage6)
+            imgArr.Add(uploadedImage7)
+            imgArr.Add(uploadedImage8)
+            imgArr.Add(uploadedImage9)
 
             Dim quantity As Integer
             If Not Integer.TryParse(p.Quantity, quantity) OrElse quantity < 1 Then quantity = 10
@@ -1202,8 +1235,8 @@ Public Class TemuService
             goodsBasic("goodsDesc") = p.Description
             goodsBasic("bulletPoints") = New JArray(BuildTemuTitle(p.Title))
             goodsBasic("goodsGallery") = JObject.FromObject(New With {
-                .goodsCarouselImage = New String() {uploadedImage},
-                .detailImage = New String() {uploadedImage}
+                .goodsCarouselImage = imgArr.ToArray,
+                .detailImage = imgArr.ToArray
             })
             goodsBasic("brand") = brandObj
             If skuCode IsNot Nothing Then goodsBasic("externalGoodsId") = skuCode
@@ -1233,7 +1266,7 @@ Public Class TemuService
             End If
 
             Dim skuObj As New JObject()
-            skuObj("images") = New JArray(uploadedImage)
+            skuObj("images") = New JArray(imgArr.ToArray)
             skuObj("quantity") = CLng(quantity)
             If skuCode IsNot Nothing Then skuObj("externalSkuId") = skuCode
             skuObj("price") = JObject.FromObject(New With {
