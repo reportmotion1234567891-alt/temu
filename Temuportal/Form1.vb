@@ -22,8 +22,8 @@ Public Class Form1
         Try
             Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
 
-            Console.WriteLine("--- Step 1: Price + Stock sync ---")
-            Await TemuService.SyncPricesAndStock()
+            'Console.WriteLine("--- Step 1: Price + Stock sync ---")
+            'Await TemuService.SyncPricesAndStock()
 
             Console.WriteLine("--- Step 2: Create new products ---")
             Await TemuService.BulkUploadAll(Integer.MaxValue)
@@ -45,10 +45,11 @@ Public Class Form1
     Private Async Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         Button1.Enabled = False
         Try
+            productRun = True
             Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
 
-            Console.WriteLine("--- Step 1: Price + Stock sync ---")
-            Await TemuService.SyncPricesAndStock()
+            'Console.WriteLine("--- Step 1: Price + Stock sync ---")
+            'Await TemuService.SyncPricesAndStock()
 
             Console.WriteLine("--- Step 2: Create new products ---")
             Await TemuService.BulkUploadAll(Integer.MaxValue)
@@ -62,6 +63,8 @@ Public Class Form1
             Console.WriteLine("=== PRODUCT INTEGRATION DONE ===")
         Catch ex As Exception
             Console.WriteLine("Integration error: " & ex.Message)
+        Finally
+            productRun = False
         End Try
         Button1.Enabled = True
         MessageBox.Show("Product integration finished - check console")
@@ -176,6 +179,8 @@ Public Class Form1
     End Sub
 
     Private Sub ProductIntegrationTimer_Tick(sender As Object, e As EventArgs) Handles ProductIntegrationTimer.Tick
-        runProductIntegration()
+        If Not productRun Then
+            runProductIntegration()
+        End If
     End Sub
 End Class
