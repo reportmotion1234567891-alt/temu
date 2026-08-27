@@ -11,7 +11,7 @@ Public Class Form1
 
         TokenService.LoadToken()
         StartOrdersTimer()
-        StartProductTimer()
+        'StartProductTimer()
 
         Console.WriteLine("Access Token Loaded:")
         Console.WriteLine(TokenStorage.AccessToken)

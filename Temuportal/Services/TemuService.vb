@@ -1215,7 +1215,9 @@ Public Class TemuService
             Dim price As String = If(String.IsNullOrWhiteSpace(p.Price), "10.00", p.Price.Trim())
 
             Dim specChildName As String = If(String.IsNullOrWhiteSpace(p.Title), "Default",
-                                             p.Title.Substring(0, Math.Min(p.Title.Length, 60)))
+                                             p.Title.Substring(0, Math.Min(p.Title.Length, 20)))
+
+            If specChildName.Length >= 20 Then specChildName = specChildName.Substring(0, 20)
             Dim spec = Await ResolveSpec(catId, specChildName)
 
             Dim taxCode = Await GetTaxCode(catId)
@@ -1284,9 +1286,12 @@ Public Class TemuService
             })
             skuObj("specDetails") = New JArray(JObject.FromObject(New With {
                 .parentSpecId = spec.parentSpecId,
-                .specId = spec.specId,
-                .specName = spec.specName
+                .specId = spec.specId
             }))
+
+            ',
+            '.specName = spec.specName
+
             If Not String.IsNullOrWhiteSpace(p.Ean) Then
                 skuObj("barCodeType") = 1
                 skuObj("barCodeId") = p.Ean.Trim()
