@@ -751,17 +751,21 @@ Public Class TemuService
 
         Console.WriteLine("=== DONE ===")
     End Function
-    Public Shared Async Function SetEnergyLabel(goodsId As Long, brand As String, model As String) As Task(Of Boolean)
-        If String.IsNullOrWhiteSpace(brand) OrElse String.IsNullOrWhiteSpace(model) Then
-            Console.WriteLine("Energy label skipped - brand/model missing")
+    Public Shared Async Function SetEnergyLabel(goodsId As Long, eprelId As String, brand As String, model As String) As Task(Of Boolean)
+        Dim hasEprel As Boolean = Not String.IsNullOrWhiteSpace(eprelId)
+        Dim hasBrandModel As Boolean = Not String.IsNullOrWhiteSpace(brand) AndAlso Not String.IsNullOrWhiteSpace(model)
+        If Not hasEprel AndAlso Not hasBrandModel Then
+            Console.WriteLine("Energy label skipped - no eprelId and no brand/model")
             Return False
         End If
-
         Dim energyLabel As New JObject()
-        energyLabel("brand") = brand.Trim()
-        energyLabel("model") = model.Trim()
+        If hasEprel Then
+            energyLabel("eprelId") = eprelId.Trim()
+        Else
+            energyLabel("brand") = brand.Trim()
+            energyLabel("model") = model.Trim()
+        End If
         energyLabel("agreeAuthorization") = True
-
         Dim certDetail As New JObject()
         Dim certTypeStr = ConfigurationManager.AppSettings("TemuEnergyCertType")
         Dim certTypeVal As Integer
@@ -769,20 +773,16 @@ Public Class TemuService
         certDetail("certType") = certTypeVal
         certDetail("skip") = False
         certDetail("energyLabel") = energyLabel
-
         Dim certificateInfo As New JObject()
         certificateInfo("certificateDetailList") = New JArray(certDetail)
-
         Dim req As New JObject()
         req("goodsId") = goodsId
         req("certificateInfo") = certificateInfo
-
         Dim res = Await SendRequestFlat("bg.local.goods.compliance.edit", req)
         If res("success").Value(Of Boolean)() Then
             Console.WriteLine($"Energy label OK for goodsId {goodsId}")
             Return True
         End If
-
         Console.WriteLine($"Energy label FAILED for goodsId {goodsId} - [{res("errorCode")}] {res("errorMsg")}")
         Return False
     End Function
@@ -989,125 +989,49 @@ Public Class TemuService
     End Function
     Public Shared Async Function BackfillAllEnergyLabels() As Task
         Console.WriteLine("=== BackfillAllEnergyLabels ===")
-        EprelService.LoadCache()
-
         Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
         Dim createdPath = IO.Path.Combine(outDir, "created.txt")
         If Not IO.File.Exists(createdPath) Then
             Console.WriteLine("no created.txt found - nothing to process")
             Return
         End If
-
         Dim products = Await CsvParser.DownloadAndParse()
         Dim bySku As New Dictionary(Of String, CsvProduct)(StringComparer.OrdinalIgnoreCase)
         For Each p In products
-            If Not String.IsNullOrWhiteSpace(p.Sku) Then bySku(p.Sku.Trim()) = p
+            If Not String.IsNullOrWhiteSpace(p.Sku) Then
+                bySku(p.Sku.Trim()) = p
+            End If
         Next
-
         Dim ok = 0, fail = 0, skip = 0
         Dim lines = IO.File.ReadAllLines(createdPath)
         Dim i = 0
-
         For Each line In lines
             Dim parts = line.Split(","c)
             If parts.Length < 2 Then Continue For
-
             Dim sku = parts(0).Trim()
             Dim goodsId As Long
             If Not Long.TryParse(parts(1).Trim(), goodsId) Then Continue For
-
             i += 1
-
             Dim p As CsvProduct = Nothing
             If Not bySku.TryGetValue(sku, p) Then
                 skip += 1
                 Continue For
             End If
-
             Dim eprelId = EprelService.ExtractEprelId(p.EnergyLabelUrl)
             If String.IsNullOrWhiteSpace(eprelId) Then
                 skip += 1
                 Continue For
             End If
-
-            Dim rec = EprelService.TryGetCached(eprelId)
-            If rec Is Nothing Then rec = Await EprelService.FetchAndParse(eprelId)
-            If rec Is Nothing OrElse String.IsNullOrWhiteSpace(rec.Brand) OrElse String.IsNullOrWhiteSpace(rec.Model) Then
-                skip += 1
-                Continue For
+            Console.WriteLine($"[{i}] {sku} goodsId {goodsId} -> eprelId {eprelId}")
+            Dim done = Await SetEnergyLabel(goodsId, eprelId, Nothing, Nothing)
+            If done Then
+                ok += 1
+            Else
+                fail += 1
             End If
-
-            Console.WriteLine($"[{i}] {sku} goodsId {goodsId} -> {rec.Brand} / {rec.Model}")
-            Dim done = Await SetEnergyLabel(goodsId, rec.Brand, rec.Model)
-            If done Then ok += 1 Else fail += 1
-
             Await Task.Delay(800)
         Next
-
-        EprelService.SaveCache()
         Console.WriteLine($"=== DONE: ok={ok} fail={fail} skip={skip} ===")
-    End Function
-    Public Shared Async Function BulkUploadGoodride(maxCount As Integer) As Task
-        Console.WriteLine("=== BulkUploadGoodride (max " & maxCount & ") ===")
-
-        Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
-        Dim failedPath = IO.Path.Combine(outDir, "failed.txt")
-
-        Dim done As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-        If IO.File.Exists(createdPath) Then
-            For Each line In IO.File.ReadAllLines(createdPath)
-                Dim sku = line.Split(","c)(0).Trim()
-                If Not String.IsNullOrEmpty(sku) Then done.Add(sku)
-            Next
-        End If
-        Console.WriteLine("Already created: " & done.Count)
-
-        Dim products = Await CsvParser.DownloadAndParse()
-        Dim goodride = products.Where(Function(p) _
-            (p.Brand IsNot Nothing AndAlso p.Brand.ToUpper().Contains("GOODRIDE")) OrElse
-            (p.Title IsNot Nothing AndAlso p.Title.ToUpper().Contains("GOODRIDE"))).ToList()
-
-        Dim todo = goodride.Where(Function(p) Not done.Contains(p.Sku)).Take(maxCount).ToList()
-        Console.WriteLine("GOODRIDE total: " & goodride.Count & " | to process this run: " & todo.Count)
-
-        Dim ok = 0
-        Dim fail = 0
-        Dim i = 0
-
-        For Each p In todo
-            i += 1
-            Console.WriteLine("")
-            Console.WriteLine($"[{i}/{todo.Count}] SKU {p.Sku} - {p.Title}")
-
-            Try
-                Dim goodsId = Await ProcessAndSubmitProduct(p)
-                If goodsId.HasValue Then
-                    ok += 1
-                    IO.File.AppendAllText(createdPath, p.Sku & "," & goodsId.Value & Environment.NewLine)
-                    Console.WriteLine("  OK -> " & goodsId.Value)
-                Else
-                    fail += 1
-                    IO.File.AppendAllText(failedPath, p.Sku & ",create-nothing" & Environment.NewLine)
-                    Console.WriteLine("  FAIL - create returned Nothing")
-                End If
-            Catch ex As Exception
-                fail += 1
-                IO.File.AppendAllText(failedPath, p.Sku & "," & ex.Message.Replace(",", ";") & Environment.NewLine)
-                Console.WriteLine("  ERROR: " & ex.Message)
-
-                If ex.Message.Contains("150011001") OrElse ex.Message.Contains("150011100") Then
-                    Console.WriteLine("!! Daily listing cap hit - stopping run. Resume tomorrow.")
-                    Exit For
-                End If
-            End Try
-
-            Await Task.Delay(2000)
-        Next
-
-        Console.WriteLine("")
-        Console.WriteLine($"=== DONE this run: ok={ok} fail={fail} ===")
-        Console.WriteLine("Progress saved to created.txt / failed.txt")
     End Function
     Public Shared Async Function CreateProduct(p As CsvProduct) As Task(Of TemuCreateResult)
         Try
@@ -1362,7 +1286,49 @@ Public Class TemuService
             Return Nothing
         End Try
     End Function
+    Public Shared Async Function TestFrAuth() As Task(Of JObject)
+        Dim frAppKey As String = "50ae0772c26a196a28d6ffae8dfb7ebe"
+        Dim frAppSecret As String = "8cf49da18f6964c9ca0010737dd11d3293bf6c08"
+        Dim frAccessToken As String = "eplqzingg73a6dydfwjwddnhegx9gxrkpspokasf4xfagj8m8oz2jhaohp5"
+        Dim apiType As String = "temu.local.goods.v2.add"
+        Dim timestamp As String = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
 
+        Dim body As New JObject()
+        body("access_token") = frAccessToken
+        body("app_key") = frAppKey
+        body("data_type") = "JSON"
+        body("timestamp") = timestamp
+        body("type") = apiType
+        body("version") = VersionFor(apiType)
+        body("language") = "en"
+
+        Dim signMap As New SortedDictionary(Of String, String)
+        For Each prop In body.Properties()
+            If prop.Name = "sign" Then Continue For
+            If prop.Value Is Nothing OrElse prop.Value.Type = JTokenType.Null Then Continue For
+            signMap(prop.Name) = TokenToSignValue(prop.Value)
+        Next
+
+        Dim sb As New StringBuilder()
+        sb.Append(frAppSecret)
+        For Each kv In signMap
+            sb.Append(kv.Key).Append(kv.Value)
+        Next
+        sb.Append(frAppSecret)
+        body("sign") = GetMD5(sb.ToString())
+
+        Dim res = Await PostJson(body)
+
+        Console.WriteLine("FR auth test raw response:")
+        Console.WriteLine(res.ToString(Formatting.None))
+
+        Dim successTok = res("success")
+        Dim errorCodeTok = res("errorCode")
+        Dim errorMsgTok = res("errorMsg")
+        Console.WriteLine("success=" & If(successTok IsNot Nothing, successTok.ToString(), "(null)") & " errorCode=" & If(errorCodeTok IsNot Nothing, errorCodeTok.ToString(), "(null)") & " errorMsg=" & If(errorMsgTok IsNot Nothing, errorMsgTok.ToString(), "(null)"))
+
+        Return res
+    End Function
     Public Shared Async Function SubmitForListing(goodsId As Long,
                                                    siteId As Long,
                                                    priceAmount As String,
@@ -1556,7 +1522,6 @@ Public Class TemuService
         Console.WriteLine("######## ProcessAndSubmitProduct ########")
         Console.WriteLine("SKU: " & p.Sku)
         Console.WriteLine("Title: " & p.Title)
-
         Console.WriteLine("=== STEP 1/4: Create product ===")
         Dim created = Await CreateProduct(p)
         If created Is Nothing Then
@@ -1564,35 +1529,28 @@ Public Class TemuService
             Return Nothing
         End If
         Console.WriteLine("STEP 1 OK - goodsId = " & created.GoodsId)
-
         Console.WriteLine("=== STEP 2/4: Wait for registration ===")
         Await WaitForGoodsReady(created.GoodsId)
-
         Console.WriteLine("=== STEP 3/4: Verify category ===")
         Dim catOk = Await VerifyCategory(created.GoodsId, GetCategory())
         If Not catOk Then
             Console.WriteLine("Category wrong - skipping compliance.")
             Return created.GoodsId
         End If
-
         Console.WriteLine("=== STEP 4/4: Set GPSR + ProduktID ===")
         If Not created.ManufacturerId.HasValue OrElse Not created.ResponsiblePersonId.HasValue Then
             Console.WriteLine("!! Missing rep IDs - cannot set GPSR")
             Return created.GoodsId
         End If
-
-        Dim gpsrOk = Await SetGpsrOnly(created.GoodsId,
-                                       created.ManufacturerId.Value,
-                                       created.ResponsiblePersonId.Value,
-                                       created.OutSkuSn)
+        Dim gpsrOk = Await SetGpsrOnly(created.GoodsId, created.ManufacturerId.Value, created.ResponsiblePersonId.Value, created.OutSkuSn)
         If gpsrOk Then
             Console.WriteLine("STEP 4 OK - compliance set")
-
-            If Not String.IsNullOrWhiteSpace(created.EnergyBrand) AndAlso Not String.IsNullOrWhiteSpace(created.EnergyModel) Then
+            Dim eprelId = EprelService.ExtractEprelId(p.EnergyLabelUrl)
+            If Not String.IsNullOrWhiteSpace(eprelId) Then
                 Console.WriteLine("=== STEP 5: Energy label ===")
-                Await SetEnergyLabel(created.GoodsId, created.EnergyBrand, created.EnergyModel)
+                Await SetEnergyLabel(created.GoodsId, eprelId, Nothing, Nothing)
             Else
-                Console.WriteLine("No EPREL data - energy label skipped")
+                Console.WriteLine("No EPREL id - energy label skipped")
             End If
         End If
         Console.WriteLine("######## ProcessAndSubmitProduct DONE ########")
@@ -1763,12 +1721,11 @@ Public Class TemuService
                 Console.WriteLine("  ERROR: " & ex.Message)
             End Try
 
-            Await Task.Delay(500)
+            Await Task.Delay(1000)
         Next
 
         Console.WriteLine($"=== DONE ok={ok} fail={fail} skip={skip} ===")
     End Function
-
     Public Shared Async Function SendAmountQueryV2(req As JObject) As Task(Of JObject)
         Return Await SendRequestFlat("temu.order.amount.v2.query", req)
     End Function

@@ -30,64 +30,59 @@ Partial Class Form1
         ErpelBtn = New Button()
         GpsrBtn = New Button()
         ProductIntegrationTimer = New Timer(components)
+        FrBtn = New Button()
         SuspendLayout()
         ' 
         ' Button1
         ' 
-        Button1.Location = New Point(315, 53)
-        Button1.Margin = New Padding(3, 4, 3, 4)
+        Button1.Location = New Point(276, 40)
         Button1.Name = "Button1"
-        Button1.Size = New Size(263, 115)
+        Button1.Size = New Size(230, 86)
         Button1.TabIndex = 0
         Button1.Text = "Product Integration"
         Button1.UseVisualStyleBackColor = True
         ' 
         ' Button2
         ' 
-        Button2.Location = New Point(649, 80)
-        Button2.Margin = New Padding(3, 4, 3, 4)
+        Button2.Location = New Point(568, 60)
         Button2.Name = "Button2"
-        Button2.Size = New Size(219, 61)
+        Button2.Size = New Size(192, 46)
         Button2.TabIndex = 1
         Button2.Text = "Test"
         Button2.UseVisualStyleBackColor = True
         ' 
         ' btnEnergyBatch
         ' 
-        btnEnergyBatch.Location = New Point(22, 56)
-        btnEnergyBatch.Margin = New Padding(3, 4, 3, 4)
+        btnEnergyBatch.Location = New Point(19, 42)
         btnEnergyBatch.Name = "btnEnergyBatch"
-        btnEnergyBatch.Size = New Size(240, 112)
+        btnEnergyBatch.Size = New Size(210, 84)
         btnEnergyBatch.TabIndex = 2
         btnEnergyBatch.Text = "ENERGYLABEL"
         btnEnergyBatch.UseVisualStyleBackColor = True
         ' 
         ' Button3
         ' 
-        Button3.Location = New Point(649, 223)
-        Button3.Margin = New Padding(3, 4, 3, 4)
+        Button3.Location = New Point(568, 167)
         Button3.Name = "Button3"
-        Button3.Size = New Size(219, 67)
+        Button3.Size = New Size(192, 50)
         Button3.TabIndex = 3
         Button3.Text = "Tracking Numbers"
         Button3.UseVisualStyleBackColor = True
         ' 
         ' ErpelBtn
         ' 
-        ErpelBtn.Location = New Point(22, 211)
-        ErpelBtn.Margin = New Padding(3, 4, 3, 4)
+        ErpelBtn.Location = New Point(19, 158)
         ErpelBtn.Name = "ErpelBtn"
-        ErpelBtn.Size = New Size(240, 119)
+        ErpelBtn.Size = New Size(210, 89)
         ErpelBtn.TabIndex = 4
         ErpelBtn.Text = "EreplButton"
         ErpelBtn.UseVisualStyleBackColor = True
         ' 
         ' GpsrBtn
         ' 
-        GpsrBtn.Location = New Point(315, 240)
-        GpsrBtn.Margin = New Padding(3, 4, 3, 4)
+        GpsrBtn.Location = New Point(276, 180)
         GpsrBtn.Name = "GpsrBtn"
-        GpsrBtn.Size = New Size(263, 89)
+        GpsrBtn.Size = New Size(230, 67)
         GpsrBtn.TabIndex = 5
         GpsrBtn.Text = "GpsrBtn"
         GpsrBtn.UseVisualStyleBackColor = True
@@ -95,18 +90,27 @@ Partial Class Form1
         ' ProductIntegrationTimer
         ' 
         ' 
+        ' FrBtn
+        ' 
+        FrBtn.Location = New Point(300, 312)
+        FrBtn.Name = "FrBtn"
+        FrBtn.Size = New Size(149, 84)
+        FrBtn.TabIndex = 6
+        FrBtn.Text = "FRAuth Tester"
+        FrBtn.UseVisualStyleBackColor = True
+        ' 
         ' Form1
         ' 
-        AutoScaleDimensions = New SizeF(8F, 20F)
+        AutoScaleDimensions = New SizeF(7F, 15F)
         AutoScaleMode = AutoScaleMode.Font
-        ClientSize = New Size(914, 600)
+        ClientSize = New Size(800, 450)
+        Controls.Add(FrBtn)
         Controls.Add(GpsrBtn)
         Controls.Add(ErpelBtn)
         Controls.Add(Button3)
         Controls.Add(btnEnergyBatch)
         Controls.Add(Button2)
         Controls.Add(Button1)
-        Margin = New Padding(3, 4, 3, 4)
         Name = "Form1"
         Text = "Form1"
         ResumeLayout(False)
@@ -119,5 +123,6 @@ Partial Class Form1
     Friend WithEvents ErpelBtn As Button
     Friend WithEvents GpsrBtn As Button
     Friend WithEvents ProductIntegrationTimer As Timer
+    Friend WithEvents FrBtn As Button
 
 End Class
