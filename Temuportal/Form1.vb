@@ -6,75 +6,172 @@ Public Class Form1
 
     Public productRun As Boolean = False
 
-    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+    Private WithEvents chkOrderTracking As New System.Windows.Forms.CheckBox
+    Private WithEvents PriceStockTimer As New System.Windows.Forms.Timer
+    Private WithEvents ProductTimer As New System.Windows.Forms.Timer
+    Private WithEvents OrdersTimer As New System.Windows.Forms.Timer
+
+    Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Console.WriteLine("Application started")
 
         TokenService.LoadToken()
-        StartOrdersTimer()
-        'StartProductTimer()
+        SetupOrderTrackingCheckbox()
+
+        PriceStockTimer.Interval = TimerIntervalMs("PriceStockIntervalMinutes", 60)
+        ProductTimer.Interval = TimerIntervalMs("ProductIntegrationMinutes", 60)
+        OrdersTimer.Interval = TimerIntervalMs("OrdersIntervalMinutes", 30)
+
+        PriceStockTimer.Start()
+        ProductTimer.Start()
+        OrdersTimer.Start()
 
         Console.WriteLine("Access Token Loaded:")
         Console.WriteLine(TokenStorage.AccessToken)
+
+        Await DoPriceStock()
+        If Not productRun Then Await DoProductIntegration()
+        Await RunOrderTrackingCycle()
     End Sub
 
-    Private Async Sub runProductIntegration()
+    Private Sub SetupOrderTrackingCheckbox()
+        chkOrderTracking.Text = "Order + Tracking aktiv"
+        chkOrderTracking.AutoSize = True
+        chkOrderTracking.Left = 12
+        chkOrderTracking.Top = 12
+        chkOrderTracking.Checked = AppState.GetOrderTrackingEnabled()
+        Controls.Add(chkOrderTracking)
+        chkOrderTracking.BringToFront()
+        Console.WriteLine("Order + Tracking is " & If(chkOrderTracking.Checked, "ENABLED", "DISABLED"))
+    End Sub
+
+    Private Sub chkOrderTracking_CheckedChanged(sender As Object, e As EventArgs) Handles chkOrderTracking.CheckedChanged
+        AppState.SetOrderTrackingEnabled(chkOrderTracking.Checked)
+        Console.WriteLine("Order + Tracking " & If(chkOrderTracking.Checked, "ENABLED", "DISABLED"))
+    End Sub
+
+    Private Function TimerIntervalMs(key As String, defaultMin As Integer) As Integer
+        Dim minutes As Integer = defaultMin
+        Dim cfg As String = ConfigurationManager.AppSettings(key)
+        If Not String.IsNullOrEmpty(cfg) Then Integer.TryParse(cfg, minutes)
+        If minutes < 1 Then minutes = defaultMin
+        Return minutes * 60 * 1000
+    End Function
+
+    Private Async Function DoPriceStock() As Task
+        Try
+            Console.WriteLine("=== PRICE + STOCK SYNC START " & Date.Now.ToString("s") & " ===")
+            Await TemuService.SyncPricesAndStock()
+            Console.WriteLine("=== PRICE + STOCK SYNC DONE ===")
+        Catch ex As Exception
+            Console.WriteLine("Price/stock error: " & ex.Message)
+        End Try
+    End Function
+
+    Private Async Function DoProductIntegration() As Task
         productRun = True
         Try
             Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
-
-            'Console.WriteLine("--- Step 1: Price + Stock sync ---")
-            'Await TemuService.SyncPricesAndStock()
-
-            Console.WriteLine("--- Step 2: Create new products ---")
+            Console.WriteLine("--- Create new products ---")
             Await TemuService.BulkUploadAll(Integer.MaxValue)
-
-            Console.WriteLine("--- Step 3: GPSR backfill ---")
+            Console.WriteLine("--- GPSR backfill ---")
             Await TemuService.BackfillAllGpsr()
-
-            Console.WriteLine("--- Step 4: Energy label backfill ---")
+            Console.WriteLine("--- Energy label backfill ---")
             Await TemuService.BackfillAllEnergyLabels()
-
             Console.WriteLine("=== PRODUCT INTEGRATION DONE ===")
         Catch ex As Exception
             Console.WriteLine("Integration error: " & ex.Message)
         Finally
             productRun = False
+        End Try
+    End Function
+
+    Private Async Function RunOrderTrackingCycle() As Task
+        If Not AppState.GetOrderTrackingEnabled() Then
+            Console.WriteLine("Orders + Tracking skipped - OFF for this instance")
+            Return
+        End If
+
+        Dim content As String = ""
+        Try
+            content = Await TemuOrderService.BuildOrderCsvForFtp()
+        Catch ex As Exception
+            File.AppendAllText("order_upload_failed.txt", DateTime.Now.ToString("s") & ";download;" & ex.Message & vbCrLf)
+        End Try
+
+        If content <> "" Then
+            Dim uploaded As String = OrderFtpUploader.UploadOrderFile(content)
+            If uploaded = "" Then
+                File.AppendAllText("order_upload_failed.txt", DateTime.Now.ToString("s") & ";upload" & vbCrLf)
+            Else
+                TemuOrderService.MarkExportSuccessful()
+                File.AppendAllText("order_upload_done.txt", DateTime.Now.ToString("s") & ";" & uploaded & vbCrLf)
+            End If
+        End If
+
+        Try
+            Dim trackLog As String = Await TemuOrderService.ProcessTrackingFromFtp()
+            File.AppendAllText("tracking_done.txt", DateTime.Now.ToString("s") & vbCrLf & trackLog & vbCrLf)
+            Console.WriteLine(trackLog)
+        Catch ex As Exception
+            File.AppendAllText("tracking_failed.txt", DateTime.Now.ToString("s") & ";" & ex.Message & vbCrLf)
+        End Try
+    End Function
+
+    Private Async Sub PriceStockTimer_Tick(sender As Object, e As EventArgs) Handles PriceStockTimer.Tick
+        PriceStockTimer.Stop()
+        Try
+            Await DoPriceStock()
+        Finally
+            PriceStockTimer.Start()
+        End Try
+    End Sub
+
+    Private Async Sub ProductTimer_Tick(sender As Object, e As EventArgs) Handles ProductTimer.Tick
+        ProductTimer.Stop()
+        Try
+            If Not productRun Then
+                Await DoProductIntegration()
+            End If
+        Finally
+            ProductTimer.Start()
+        End Try
+    End Sub
+
+    Private Async Sub OrdersTimer_Tick(sender As Object, e As EventArgs) Handles OrdersTimer.Tick
+        OrdersTimer.Stop()
+        Try
+            Await RunOrderTrackingCycle()
+        Finally
+            OrdersTimer.Start()
         End Try
     End Sub
 
     Private Async Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        If productRun Then
+            MessageBox.Show("Product integration already running")
+            Return
+        End If
         Button1.Enabled = False
         Try
-            productRun = True
-            Console.WriteLine("=== PRODUCT INTEGRATION START " & Date.Now.ToString("s") & " ===")
-
-            'Console.WriteLine("--- Step 1: Price + Stock sync ---")
-            'Await TemuService.SyncPricesAndStock()
-
-            Console.WriteLine("--- Step 2: Create new products ---")
-            Await TemuService.BulkUploadAll(Integer.MaxValue)
-
-            Console.WriteLine("--- Step 3: GPSR backfill ---")
-            Await TemuService.BackfillAllGpsr()
-
-            Console.WriteLine("--- Step 4: Energy label backfill ---")
-            Await TemuService.BackfillAllEnergyLabels()
-
-            Console.WriteLine("=== PRODUCT INTEGRATION DONE ===")
-        Catch ex As Exception
-            Console.WriteLine("Integration error: " & ex.Message)
+            Await DoProductIntegration()
         Finally
-            productRun = False
+            Button1.Enabled = True
         End Try
-        Button1.Enabled = True
         MessageBox.Show("Product integration finished - check console")
     End Sub
+
+    Private Async Sub PriceStockBtn_Click(sender As Object, e As EventArgs) Handles Button1.DoubleClick
+        Await DoPriceStock()
+        MessageBox.Show("Price/stock sync finished - check console")
+    End Sub
+
     Private Async Sub GpsrBtn_Click(sender As Object, e As EventArgs) Handles GpsrBtn.Click
         GpsrBtn.Enabled = False
         Await TemuService.BackfillAllGpsr()
         GpsrBtn.Enabled = True
         MessageBox.Show("GPSR backfill done - check console for ok/fail/skip")
     End Sub
+
     Private Async Sub ErpelBtn_Click(sender As Object, e As EventArgs) Handles ErpelBtn.Click
         ErpelBtn.Enabled = False
         Dim manufacturers = Await TemuService.GetCompliancePersons(3)
@@ -115,7 +212,6 @@ Public Class Form1
         Button2.Enabled = True
         MessageBox.Show(If(uploaded <> "", "Uploaded: " & uploaded, "Upload FAILED"))
     End Sub
-    Private WithEvents OrdersTimer As New System.Windows.Forms.Timer
 
     Private Async Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
         Button3.Enabled = False
@@ -137,62 +233,12 @@ Public Class Form1
         Button3.Enabled = True
         MessageBox.Show("SHIPPED orders:" & vbCrLf & sb.ToString())
     End Sub
-    Private Sub StartOrdersTimer()
-        Dim minutes As Integer = 30
-        Dim cfg As String = System.Configuration.ConfigurationManager.AppSettings("OrdersIntervalMinutes")
-        If Not String.IsNullOrEmpty(cfg) Then Integer.TryParse(cfg, minutes)
-        If minutes < 1 Then minutes = 30
-        OrdersTimer.Interval = minutes * 60 * 1000
-        OrdersTimer.Start()
-    End Sub
-
-    Private Sub StartProductTimer()
-        Dim minutes As Integer = 10
-        Dim cfg As String = System.Configuration.ConfigurationManager.AppSettings("ProductIntegrationMinutes")
-        If Not String.IsNullOrEmpty(cfg) Then Integer.TryParse(cfg, minutes)
-        If minutes < 1 Then minutes = 30
-        ProductIntegrationTimer.Interval = minutes * 60 * 1000
-        ProductIntegrationTimer.Start()
-    End Sub
-
-
-    Private Sub OrdersTimer_Tick(sender As Object, e As EventArgs) Handles OrdersTimer.Tick
-        OrdersTimer.Stop()
-        RunOrderExportCycle()
-    End Sub
-
-    Private Async Sub RunOrderExportCycle()
-        Dim content As String = ""
-        Try
-            content = Await TemuOrderService.BuildOrderCsvForFtp()
-        Catch ex As Exception
-            File.AppendAllText("order_upload_failed.txt", DateTime.Now.ToString("s") & ";download;" & ex.Message & vbCrLf)
-        End Try
-
-        If content <> "" Then
-            Dim uploaded As String = OrderFtpUploader.UploadOrderFile(content)
-            If uploaded = "" Then
-                File.AppendAllText("order_upload_failed.txt", DateTime.Now.ToString("s") & ";upload" & vbCrLf)
-            Else
-                TemuOrderService.MarkExportSuccessful()
-                File.AppendAllText("order_upload_done.txt", DateTime.Now.ToString("s") & ";" & uploaded & vbCrLf)
-            End If
-        End If
-
-        OrdersTimer.Start()
-    End Sub
 
     Private Async Sub btnEnergyBatch_Click(sender As Object, e As EventArgs) Handles btnEnergyBatch.Click
         btnEnergyBatch.Enabled = False
         Await TemuService.BackfillAllEnergyLabels()
         btnEnergyBatch.Enabled = True
         MessageBox.Show("Backfill done - check console for ok/fail/skip counts")
-    End Sub
-
-    Private Sub ProductIntegrationTimer_Tick(sender As Object, e As EventArgs) Handles ProductIntegrationTimer.Tick
-        If Not productRun Then
-            runProductIntegration()
-        End If
     End Sub
 
     Private Async Sub FrBtn_Click(sender As Object, e As EventArgs) Handles FrBtn.Click
