@@ -5,8 +5,6 @@ Imports Newtonsoft.Json.Linq
 Public Class Form1
 
     Public productRun As Boolean = False
-
-    Private WithEvents chkOrderTracking As New System.Windows.Forms.CheckBox
     Private WithEvents PriceStockTimer As New System.Windows.Forms.Timer
     Private WithEvents ProductTimer As New System.Windows.Forms.Timer
     Private WithEvents OrdersTimer As New System.Windows.Forms.Timer
@@ -34,13 +32,7 @@ Public Class Form1
     End Sub
 
     Private Sub SetupOrderTrackingCheckbox()
-        chkOrderTracking.Text = "Order + Tracking aktiv"
-        chkOrderTracking.AutoSize = True
-        chkOrderTracking.Left = 12
-        chkOrderTracking.Top = 12
         chkOrderTracking.Checked = AppState.GetOrderTrackingEnabled()
-        Controls.Add(chkOrderTracking)
-        chkOrderTracking.BringToFront()
         Console.WriteLine("Order + Tracking is " & If(chkOrderTracking.Checked, "ENABLED", "DISABLED"))
     End Sub
 

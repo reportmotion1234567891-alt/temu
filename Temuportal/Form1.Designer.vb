@@ -31,6 +31,7 @@ Partial Class Form1
         GpsrBtn = New Button()
         ProductIntegrationTimer = New Timer(components)
         FrBtn = New Button()
+        chkOrderTracking = New CheckBox()
         SuspendLayout()
         ' 
         ' Button1
@@ -87,9 +88,6 @@ Partial Class Form1
         GpsrBtn.Text = "GpsrBtn"
         GpsrBtn.UseVisualStyleBackColor = True
         ' 
-        ' ProductIntegrationTimer
-        ' 
-        ' 
         ' FrBtn
         ' 
         FrBtn.Location = New Point(300, 312)
@@ -99,11 +97,22 @@ Partial Class Form1
         FrBtn.Text = "FRAuth Tester"
         FrBtn.UseVisualStyleBackColor = True
         ' 
+        ' chkOrderTracking
+        ' 
+        chkOrderTracking.AutoSize = True
+        chkOrderTracking.Location = New Point(12, 12)
+        chkOrderTracking.Name = "chkOrderTracking"
+        chkOrderTracking.Size = New Size(120, 19)
+        chkOrderTracking.TabIndex = 7
+        chkOrderTracking.Text = "chkOrderTracking"
+        chkOrderTracking.UseVisualStyleBackColor = True
+        ' 
         ' Form1
         ' 
         AutoScaleDimensions = New SizeF(7F, 15F)
         AutoScaleMode = AutoScaleMode.Font
         ClientSize = New Size(800, 450)
+        Controls.Add(chkOrderTracking)
         Controls.Add(FrBtn)
         Controls.Add(GpsrBtn)
         Controls.Add(ErpelBtn)
@@ -114,6 +123,7 @@ Partial Class Form1
         Name = "Form1"
         Text = "Form1"
         ResumeLayout(False)
+        PerformLayout()
     End Sub
 
     Friend WithEvents Button1 As Button
@@ -124,5 +134,6 @@ Partial Class Form1
     Friend WithEvents GpsrBtn As Button
     Friend WithEvents ProductIntegrationTimer As Timer
     Friend WithEvents FrBtn As Button
+    Friend WithEvents chkOrderTracking As CheckBox
 
 End Class
