@@ -165,23 +165,7 @@ Public Class Form1
     End Sub
 
     Private Async Sub ErpelBtn_Click(sender As Object, e As EventArgs) Handles ErpelBtn.Click
-        ErpelBtn.Enabled = False
-        Dim manufacturers = Await TemuService.GetCompliancePersons(3)
-        Dim responsibles = Await TemuService.GetCompliancePersons(2)
-        Dim sb As New System.Text.StringBuilder()
-        sb.AppendLine("=== MANUFACTURERS (type 3) ===")
-        For Each m In manufacturers
-            sb.AppendLine(m.ToString(Newtonsoft.Json.Formatting.None))
-        Next
-        sb.AppendLine("")
-        sb.AppendLine("=== RESPONSIBLE PERSONS (type 2) ===")
-        For Each r In responsibles
-            sb.AppendLine(r.ToString(Newtonsoft.Json.Formatting.None))
-        Next
-        ErpelBtn.Enabled = True
-        Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        IO.File.WriteAllText(IO.Path.Combine(outDir, "compliance_reps.txt"), sb.ToString())
-        MessageBox.Show("Written compliance_reps.txt - " & manufacturers.Count & " manufacturers, " & responsibles.Count & " responsibles")
+        Await TemuService.CheckManufacturerCoverage()
     End Sub
 
     Private Async Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
@@ -234,6 +218,6 @@ Public Class Form1
     End Sub
 
     Private Async Sub FrBtn_Click(sender As Object, e As EventArgs) Handles FrBtn.Click
-        Await TemuService.TestFrAuth()
+        Await TemuService.GetFrLogisticsCompanies()
     End Sub
 End Class

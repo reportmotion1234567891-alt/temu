@@ -178,6 +178,13 @@ Public Class TemuOrderService
                     row.OrderCreateTime = If(orderItem("orderCreateTime") IsNot Nothing, orderItem("orderCreateTime").Value(Of Long)(), 0L)
                     row.GoodsId = If(orderItem("goodsId") IsNot Nothing, orderItem("goodsId").Value(Of Long)(), 0L)
                     row.SkuId = If(orderItem("skuId") IsNot Nothing, orderItem("skuId").Value(Of Long)(), 0L)
+                    Dim productList = TryCast(orderItem("productList"), JArray)
+                    If productList IsNot Nothing AndAlso productList.Count > 0 Then
+                        Dim firstProd = TryCast(productList(0), JObject)
+                        If firstProd IsNot Nothing AndAlso firstProd("extCode") IsNot Nothing Then
+                            row.ExtCode = firstProd("extCode").ToString()
+                        End If
+                    End If
                     row.GoodsName = If(orderItem("goodsName") IsNot Nothing, orderItem("goodsName").ToString(), "")
                     row.Spec = If(orderItem("spec") IsNot Nothing, orderItem("spec").ToString(), "")
                     row.Quantity = If(orderItem("quantity") IsNot Nothing, orderItem("quantity").Value(Of Integer)(), 0)
@@ -292,7 +299,7 @@ Public Class TemuOrderService
         Next
 
         Dim sb As New StringBuilder()
-        sb.AppendLine("ParentOrderSn,OrderSn,ParentOrderStatus,OrderStatus,ParentOrderTime,OrderCreateTime,ExpectShipLatestTime,LatestDeliveryTime,GoodsId,SkuId,GoodsName,Spec,Quantity,OriginalOrderQuantity,ThumbUrl,ReceiptName,Mobile,Mail,RegionName1,RegionName2,RegionName3,AddressLine1,AddressLine2,PostCode,AddressLineAll,PackageSn,OrderPaymentType,FulfillmentType,ShippingMethod,UnitBasePrice,UnitRetailPriceInclVAT,UnitRetailPriceExclVAT")
+        sb.AppendLine("ParentOrderSn,OrderSn,ParentOrderStatus,OrderStatus,ParentOrderTime,OrderCreateTime,ExpectShipLatestTime,LatestDeliveryTime,GoodsId,SkuId,InternalSku,GoodsName,Spec,Quantity,OriginalOrderQuantity,ThumbUrl,ReceiptName,Mobile,Mail,RegionName1,RegionName2,RegionName3,AddressLine1,AddressLine2,PostCode,AddressLineAll,PackageSn,OrderPaymentType,FulfillmentType,ShippingMethod,UnitBasePrice,UnitRetailPriceInclVAT,UnitRetailPriceExclVAT")
 
         For Each r In rows
             Dim basePrice As String = ""
@@ -319,6 +326,8 @@ Public Class TemuOrderService
             r.LatestDeliveryTime.ToString(),
             r.GoodsId.ToString(),
             r.SkuId.ToString(),
+            CsvEscape(r.ExtCode),
+            CsvEscape(r.GoodsName),
             CsvEscape(r.GoodsName),
             CsvEscape(r.Spec),
             r.Quantity.ToString(),

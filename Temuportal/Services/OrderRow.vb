@@ -1,5 +1,6 @@
 ﻿Public Class OrderRow
     Public Property ParentOrderSn As String
+    Public Property ExtCode As String
     Public Property OrderSn As String
     Public Property ParentOrderStatus As Integer
     Public Property OrderStatus As Integer

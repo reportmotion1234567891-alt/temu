@@ -477,7 +477,90 @@ Public Class TemuService
         Next
         Return Nothing
     End Function
+    Private Shared Function LoadApprovedManufacturers() As List(Of JObject)
+        Dim outList As New List(Of JObject)
+        Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
+        Dim path = IO.Path.Combine(outDir, "compliance_reps.txt")
+        If Not IO.File.Exists(path) Then Return outList
+        Dim lines = IO.File.ReadAllLines(path)
+        For Each line In lines
+            Dim t = line.Trim()
+            If Not t.StartsWith("{") Then Continue For
+            Dim obj As JObject = Nothing
+            Try
+                obj = JObject.Parse(t)
+            Catch ex As Exception
+                Continue For
+            End Try
+            If obj("repType") Is Nothing OrElse obj("repType").Value(Of Integer)() <> 3 Then Continue For
+            If obj("repStatus") Is Nothing OrElse obj("repStatus").Value(Of Integer)() <> 3 Then Continue For
+            outList.Add(obj)
+        Next
+        Return outList
+    End Function
 
+    Private Shared Function BrandForProduct(p As CsvProduct) As String
+        If Not String.IsNullOrWhiteSpace(p.Brand) Then Return p.Brand.Trim()
+        Return ExtractBrandFromTitle(p.Title)
+    End Function
+
+    Private Shared Function MatchManufacturer(brand As String, approved As List(Of JObject)) As JObject
+        If String.IsNullOrWhiteSpace(brand) Then Return Nothing
+        Dim b = brand.Trim().ToLowerInvariant()
+        For Each m In approved
+            Dim nameTok = m("repName")
+            If nameTok Is Nothing Then Continue For
+            Dim name = nameTok.ToString().ToLowerInvariant()
+            If name.Contains(b) Then Return m
+        Next
+        Return Nothing
+    End Function
+
+    Public Shared Async Function CheckManufacturerCoverage() As Task
+        Console.WriteLine("=== ManufacturerCoverage ===")
+        Dim approved = LoadApprovedManufacturers()
+        Console.WriteLine("Approved manufacturers: " & approved.Count)
+        If approved.Count = 0 Then
+            Console.WriteLine("No compliance_reps.txt or no approved entries - run ErpelBtn first")
+            Return
+        End If
+        Dim products = Await CsvParser.DownloadAndParse()
+        Dim brandCounts As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+        For Each p In products
+            Dim brand = BrandForProduct(p)
+            If String.IsNullOrWhiteSpace(brand) Then brand = "(no brand)"
+            If brandCounts.ContainsKey(brand) Then
+                brandCounts(brand) = brandCounts(brand) + 1
+            Else
+                brandCounts(brand) = 1
+            End If
+        Next
+        Dim matchedSb As New System.Text.StringBuilder()
+        Dim missingSb As New System.Text.StringBuilder()
+        Dim matchedCount = 0
+        Dim missingCount = 0
+        For Each kv In brandCounts
+            Dim m = MatchManufacturer(kv.Key, approved)
+            If m IsNot Nothing Then
+                matchedCount += 1
+                matchedSb.AppendLine(kv.Key & " (" & kv.Value & " products) -> " & m("repName").ToString() & " [repId " & m("repId").ToString() & "]")
+            Else
+                missingCount += 1
+                missingSb.AppendLine(kv.Key & " (" & kv.Value & " products)")
+            End If
+        Next
+        Dim report As New System.Text.StringBuilder()
+        report.AppendLine("=== MATCHED (" & matchedCount & " brands) ===")
+        report.Append(matchedSb.ToString())
+        report.AppendLine("")
+        report.AppendLine("=== MISSING (" & missingCount & " brands) ===")
+        report.Append(missingSb.ToString())
+        Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
+        Dim reportPath = IO.Path.Combine(outDir, "manufacturer_coverage.txt")
+        IO.File.WriteAllText(reportPath, report.ToString())
+        Console.WriteLine(report.ToString())
+        Console.WriteLine("Written " & reportPath)
+    End Function
     Private Shared Function ExtractBrandFromTitle(title As String) As String
         If String.IsNullOrWhiteSpace(title) Then Return ""
         Dim parts = title.Trim().Split(" "c)
@@ -601,7 +684,42 @@ Public Class TemuService
         Console.WriteLine("goodsProperty: " & arr.ToString(Formatting.None))
         Return arr
     End Function
+    Public Shared Async Function GetFrLogisticsCompanies() As Task(Of JObject)
+        Dim frAppKey As String = "50ae0772c26a196a28d6ffae8dfb7ebe"
+        Dim frAppSecret As String = "8cf49da18f6964c9ca0010737dd11d3293bf6c08"
+        Dim frAccessToken As String = "eplqzingg73a6dydfwjwddnhegx9gxrkpspokasf4xfagj8m8oz2jhaohp5"
+        Dim apiType As String = "bg.logistics.companies.get"
+        Dim timestamp As String = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
 
+        Dim body As New JObject()
+        body("access_token") = frAccessToken
+        body("app_key") = frAppKey
+        body("data_type") = "JSON"
+        body("timestamp") = timestamp
+        body("type") = apiType
+        body("version") = VersionFor(apiType)
+        body("regionId") = 69
+
+        Dim signMap As New SortedDictionary(Of String, String)
+        For Each prop In body.Properties()
+            If prop.Name = "sign" Then Continue For
+            If prop.Value Is Nothing OrElse prop.Value.Type = JTokenType.Null Then Continue For
+            signMap(prop.Name) = TokenToSignValue(prop.Value)
+        Next
+
+        Dim sb As New StringBuilder()
+        sb.Append(frAppSecret)
+        For Each kv In signMap
+            sb.Append(kv.Key).Append(kv.Value)
+        Next
+        sb.Append(frAppSecret)
+        body("sign") = GetMD5(sb.ToString())
+
+        Dim res = Await PostJson(body)
+        Console.WriteLine("FR logistics companies raw response:")
+        Console.WriteLine(res.ToString(Formatting.None))
+        Return res
+    End Function
     Public Shared Async Function LoadExistingSkus() As Task(Of Dictionary(Of String, Long))
         Dim map As New Dictionary(Of String, Long)(StringComparer.OrdinalIgnoreCase)
 
