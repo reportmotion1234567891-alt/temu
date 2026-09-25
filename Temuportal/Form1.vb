@@ -41,9 +41,9 @@ Public Class Form1
         Console.WriteLine("Access Token Loaded:")
         Console.WriteLine(TokenStorage.AccessToken)
 
-        'Await DoPriceStock()
-        'If Not productRun Then Await DoProductIntegration()
-        'Await RunOrderTrackingCycle()
+        Await DoPriceStock()
+        If Not productRun Then Await DoProductIntegration()
+        Await RunOrderTrackingCycle()
     End Sub
 
     Private Sub SetupOrderTrackingCheckbox()
