@@ -62,7 +62,11 @@ Public Class TemuService
             Return sb.ToString().ToUpper()
         End Using
     End Function
-
+    Private Shared Function ActiveStoreSuffix() As String
+        Dim store = ConfigurationManager.AppSettings("ActiveStore")
+        If String.IsNullOrWhiteSpace(store) Then store = "DE"
+        Return store.Trim().ToUpper()
+    End Function
     Private Shared Function TokenToSignValue(token As JToken) As String
         If token Is Nothing OrElse token.Type = JTokenType.Null Then Return ""
         Select Case token.Type
@@ -172,11 +176,13 @@ Public Class TemuService
     End Function
 
     Public Shared Async Function UploadImage(imageUrl As String, catId As Long) As Task(Of String)
+        If String.IsNullOrWhiteSpace(imageUrl) Then Return ""
+
         Dim req = New With {
-            .fileUrl = imageUrl,
-            .catId = catId,
-            .usage = 3
-        }
+        .fileUrl = imageUrl,
+        .catId = catId,
+        .usage = 3
+    }
 
         Dim res = Await SendRequestFlat("temu.local.goods.image.v2.upload", req)
 
@@ -720,6 +726,43 @@ Public Class TemuService
         Console.WriteLine(res.ToString(Formatting.None))
         Return res
     End Function
+
+    Public Shared Async Function GetFrShippingTemplates(apiType As String) As Task(Of JObject)
+        Dim frAppKey As String = "50ae0772c26a196a28d6ffae8dfb7ebe"
+        Dim frAppSecret As String = "8cf49da18f6964c9ca0010737dd11d3293bf6c08"
+        Dim frAccessToken As String = "eplqzingg73a6dydfwjwddnhegx9gxrkpspokasf4xfagj8m8oz2jhaohp5"
+        Dim timestamp As String = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
+
+        Dim body As New JObject()
+        body("access_token") = frAccessToken
+        body("app_key") = frAppKey
+        body("data_type") = "JSON"
+        body("timestamp") = timestamp
+        body("type") = apiType
+        body("version") = VersionFor(apiType)
+        body("regionId") = 69
+
+        Dim signMap As New SortedDictionary(Of String, String)
+        For Each prop In body.Properties()
+            If prop.Name = "sign" Then Continue For
+            If prop.Value Is Nothing OrElse prop.Value.Type = JTokenType.Null Then Continue For
+            signMap(prop.Name) = TokenToSignValue(prop.Value)
+        Next
+
+        Dim sb As New StringBuilder()
+        sb.Append(frAppSecret)
+        For Each kv In signMap
+            sb.Append(kv.Key).Append(kv.Value)
+        Next
+        sb.Append(frAppSecret)
+        body("sign") = GetMD5(sb.ToString())
+
+        Dim res = Await PostJson(body)
+        Console.WriteLine("FR shipping template raw response:")
+        Console.WriteLine(res.ToString(Formatting.None))
+        Return res
+    End Function
+
     Public Shared Async Function LoadExistingSkus() As Task(Of Dictionary(Of String, Long))
         Dim map As New Dictionary(Of String, Long)(StringComparer.OrdinalIgnoreCase)
 
@@ -1108,7 +1151,7 @@ Public Class TemuService
     Public Shared Async Function BackfillAllEnergyLabels() As Task
         Console.WriteLine("=== BackfillAllEnergyLabels ===")
         Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
+        Dim createdPath = IO.Path.Combine(outDir, "created_" & ActiveStoreSuffix() & ".txt")
         If Not IO.File.Exists(createdPath) Then
             Console.WriteLine("no created.txt found - nothing to process")
             Return
@@ -1717,12 +1760,75 @@ Public Class TemuService
 
         Console.WriteLine("=== DONE ===")
     End Function
+    Public Shared Async Function CrawlFrCategories() As Task
+        Console.WriteLine("=== FR CATEGORY CRAWL ===")
+        Await CrawlCatLevel(0, "")
+        Console.WriteLine("=== FR CATEGORY CRAWL DONE ===")
+    End Function
+
+    Private Shared Async Function CrawlCatLevel(parentCatId As Long, pathPrefix As String) As Task
+        Dim res = Await CatsGet(parentCatId)
+        If res Is Nothing Then Return
+        Dim result = TryCast(res("result"), JObject)
+        If result Is Nothing Then Return
+        Dim list = TryCast(result("goodsCatsList"), JArray)
+        If list Is Nothing Then Return
+
+        For Each c In list
+            Dim catId = c("catId").Value(Of Long)()
+            Dim catName = If(c("catName") IsNot Nothing, c("catName").ToString(), "")
+            Dim isLeaf = c("leaf") IsNot Nothing AndAlso c("leaf").Value(Of Boolean)()
+            Dim avail = If(c("availableStatus") IsNot Nothing, c("availableStatus").Value(Of Integer)(), 1)
+            Dim fullPath = If(pathPrefix = "", catName, pathPrefix & " > " & catName)
+
+            If isLeaf Then
+                Dim availTxt = If(avail = 0, "AVAILABLE", "not available")
+                Console.WriteLine(catId & " [" & availTxt & "] " & fullPath)
+            Else
+                Await CrawlCatLevel(catId, fullPath)
+                Await Task.Delay(150)
+            End If
+        Next
+    End Function
+
+    Private Shared Async Function CatsGet(parentCatId As Long) As Task(Of JObject)
+        Dim frAppKey As String = "50ae0772c26a196a28d6ffae8dfb7ebe"
+        Dim frAppSecret As String = "8cf49da18f6964c9ca0010737dd11d3293bf6c08"
+        Dim frAccessToken As String = "eplqzingg73a6dydfwjwddnhegx9gxrkpspokasf4xfagj8m8oz2jhaohp5"
+        Dim apiType As String = "bg.local.goods.cats.get"
+        Dim timestamp As String = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()
+
+        Dim body As New JObject()
+        body("access_token") = frAccessToken
+        body("app_key") = frAppKey
+        body("data_type") = "JSON"
+        body("timestamp") = timestamp
+        body("type") = apiType
+        body("version") = VersionFor(apiType)
+        If parentCatId > 0 Then body("parentCatId") = parentCatId
+
+        Dim signMap As New SortedDictionary(Of String, String)
+        For Each prop In body.Properties()
+            If prop.Name = "sign" Then Continue For
+            If prop.Value Is Nothing OrElse prop.Value.Type = JTokenType.Null Then Continue For
+            signMap(prop.Name) = TokenToSignValue(prop.Value)
+        Next
+        Dim sb As New StringBuilder()
+        sb.Append(frAppSecret)
+        For Each kv In signMap
+            sb.Append(kv.Key).Append(kv.Value)
+        Next
+        sb.Append(frAppSecret)
+        body("sign") = GetMD5(sb.ToString())
+
+        Return Await PostJson(body)
+    End Function
     Public Shared Async Function BulkUploadAll(maxCount As Integer) As Task
         Console.WriteLine("=== BulkUploadAll (max " & maxCount & ") ===")
 
         Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
-        Dim failedPath = IO.Path.Combine(outDir, "failed.txt")
+        Dim createdPath = IO.Path.Combine(outDir, "created_" & ActiveStoreSuffix() & ".txt")
+        Dim failedPath = IO.Path.Combine(outDir, "failed_" & ActiveStoreSuffix() & ".txt")
 
         Dim done As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
         If IO.File.Exists(createdPath) Then
@@ -1780,7 +1886,7 @@ Public Class TemuService
     Public Shared Async Function BackfillAllGpsr() As Task
         Console.WriteLine("=== BackfillAllGpsr ===")
         Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
+        Dim createdPath = IO.Path.Combine(outDir, "created_" & ActiveStoreSuffix() & ".txt")
         Dim gpsrDonePath = IO.Path.Combine(outDir, "gpsr_done.txt")
 
         If Not IO.File.Exists(createdPath) Then
@@ -1889,7 +1995,7 @@ Public Class TemuService
     Public Shared Async Function SyncPricesAndStock() As Task
         Console.WriteLine("=== SYNC PRICES + STOCK ===")
         Dim outDir = IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-        Dim createdPath = IO.Path.Combine(outDir, "created.txt")
+        Dim createdPath = IO.Path.Combine(outDir, "created_" & ActiveStoreSuffix() & ".txt")
         If Not IO.File.Exists(createdPath) Then
             Console.WriteLine("created.txt not found")
             Return

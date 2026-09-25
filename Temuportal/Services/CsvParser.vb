@@ -19,6 +19,7 @@ Public Class CsvParser
             Dim SockFile = ConfigurationManager.AppSettings("SockFile")
 
             Dim url = FtpServer & SockFile
+            Console.WriteLine("CSV FTP url = [" & url & "]")
             Console.WriteLine("Downloading CSV from FTP...")
 
             Dim lines As New List(Of String)

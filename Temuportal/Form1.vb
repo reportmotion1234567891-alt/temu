@@ -8,11 +8,26 @@ Public Class Form1
     Private WithEvents PriceStockTimer As New System.Windows.Forms.Timer
     Private WithEvents ProductTimer As New System.Windows.Forms.Timer
     Private WithEvents OrdersTimer As New System.Windows.Forms.Timer
-
+    Private Sub ApplyActiveStore()
+        Dim store = ConfigurationManager.AppSettings("ActiveStore")
+        If String.IsNullOrWhiteSpace(store) Then store = "DE"
+        store = store.Trim().ToUpperInvariant()
+        Dim settings = ConfigurationManager.AppSettings
+        Dim prefix = store & "_"
+        For Each key In settings.AllKeys
+            If key.StartsWith(prefix) Then
+                Dim baseKey = key.Substring(prefix.Length)
+                settings(baseKey) = settings(key)
+            End If
+        Next
+        Console.WriteLine("Active store: " & store)
+    End Sub
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Console.WriteLine("Application started")
 
+        ApplyActiveStore()
         TokenService.LoadToken()
+
         SetupOrderTrackingCheckbox()
 
         PriceStockTimer.Interval = TimerIntervalMs("PriceStockIntervalMinutes", 60)
@@ -26,9 +41,9 @@ Public Class Form1
         Console.WriteLine("Access Token Loaded:")
         Console.WriteLine(TokenStorage.AccessToken)
 
-        Await DoPriceStock()
-        If Not productRun Then Await DoProductIntegration()
-        Await RunOrderTrackingCycle()
+        'Await DoPriceStock()
+        'If Not productRun Then Await DoProductIntegration()
+        'Await RunOrderTrackingCycle()
     End Sub
 
     Private Sub SetupOrderTrackingCheckbox()
@@ -218,6 +233,6 @@ Public Class Form1
     End Sub
 
     Private Async Sub FrBtn_Click(sender As Object, e As EventArgs) Handles FrBtn.Click
-        Await TemuService.GetFrLogisticsCompanies()
+        Await TemuService.CrawlFrCategories()
     End Sub
 End Class
