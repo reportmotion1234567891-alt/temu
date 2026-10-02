@@ -235,4 +235,5 @@ Public Class Form1
     Private Async Sub FrBtn_Click(sender As Object, e As EventArgs) Handles FrBtn.Click
         Await TemuService.CrawlFrCategories()
     End Sub
+
 End Class

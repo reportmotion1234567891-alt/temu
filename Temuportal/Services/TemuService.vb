@@ -599,11 +599,11 @@ Public Class TemuService
         Dim t = If(title, "").ToLowerInvariant()
         Dim vid As Long
 
-        If t.Contains("winter") Then
+        If t.Contains("winter") OrElse t.Contains("hiver") Then
             vid = 14237
-        ElseIf t.Contains("sommer") OrElse t.Contains("summer") Then
+        ElseIf t.Contains("sommer") OrElse t.Contains("summer") OrElse t.Contains("ete") OrElse t.Contains("été") Then
             vid = 14236
-        ElseIf t.Contains("ganzjahr") OrElse t.Contains("allwetter") OrElse t.Contains("all season") OrElse t.Contains("allseason") Then
+        ElseIf t.Contains("ganzjahr") OrElse t.Contains("allwetter") OrElse t.Contains("all season") OrElse t.Contains("allseason") OrElse t.Contains("4 saisons") OrElse t.Contains("toutes saisons") Then
             vid = 14240
         Else
             Return Nothing
@@ -1209,8 +1209,6 @@ Public Class TemuService
 
             Console.WriteLine($"GPSR -> manufacturerId: {If(manufacturerId.HasValue, manufacturerId.Value.ToString(), "(none)")}, responsiblePersonId: {If(euHeadId.HasValue, euHeadId.Value.ToString(), "(none)")}")
 
-            Console.WriteLine($"GPSR -> manufacturerId: {If(manufacturerId.HasValue, manufacturerId.Value.ToString(), "(none)")}, responsiblePersonId: {If(euHeadId.HasValue, euHeadId.Value.ToString(), "(none)")}")
-
             Dim skuCode As String = Nothing
             If Not String.IsNullOrWhiteSpace(p.Sku) Then
                 skuCode = p.Sku.Trim().Substring(0, Math.Min(p.Sku.Trim().Length, 40))
@@ -1255,39 +1253,22 @@ Public Class TemuService
             End If
 
             Dim imgArr As New List(Of String)
-            Dim uploadedImageMain = Await UploadImage(p.ImageUrl1, catId)
+            imgArr.Add(Await UploadImage(p.ImageUrl1, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl2, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl3, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl4, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl5, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl6, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl7, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl8, catId))
+            imgArr.Add(Await UploadImage(p.ImageUrl9, catId))
 
-            imgArr.Add(uploadedImageMain)
-
-            Dim uploadimage2, uploadimage3, uploadimage4, uploadimage5
-
-            If Not String.IsNullOrWhiteSpace(p.ImageUrl2) Then
-                uploadimage2 = Await UploadImage(p.ImageUrl2, catId)
-                imgArr.Add(uploadimage2)
+            Dim images = CleanImages(imgArr)
+            If images.Length = 0 Then
+                Console.WriteLine("No valid images for SKU " & p.Sku & " - skipping product")
+                Return Nothing
             End If
-            If Not String.IsNullOrWhiteSpace(p.ImageUrl3) Then
-                uploadimage3 = Await UploadImage(p.ImageUrl3, catId)
-                imgArr.Add(uploadimage3)
-            End If
-            If Not String.IsNullOrWhiteSpace(p.ImageUrl4) Then
-                uploadimage4 = Await UploadImage(p.ImageUrl4, catId)
-                imgArr.Add(uploadimage4)
-            End If
-            If Not String.IsNullOrWhiteSpace(p.ImageUrl5) Then
-                uploadimage5 = Await UploadImage(p.ImageUrl5, catId)
-                imgArr.Add(uploadimage5)
-            End If
-
-            'Following Images are our advertising images, which do not need to be checked if they exist
-            Dim uploadedImage6 = Await UploadImage(p.ImageUrl6, catId)
-            Dim uploadedImage7 = Await UploadImage(p.ImageUrl7, catId)
-            Dim uploadedImage8 = Await UploadImage(p.ImageUrl8, catId)
-            Dim uploadedImage9 = Await UploadImage(p.ImageUrl9, catId)
-
-            imgArr.Add(uploadedImage6)
-            imgArr.Add(uploadedImage7)
-            imgArr.Add(uploadedImage8)
-            imgArr.Add(uploadedImage9)
+            Console.WriteLine("Images used: " & images.Length)
 
             Dim quantity As Integer
             If Not Integer.TryParse(p.Quantity, quantity) OrElse quantity < 1 Then quantity = 10
@@ -1323,8 +1304,8 @@ Public Class TemuService
             goodsBasic("goodsDesc") = p.Description
             goodsBasic("bulletPoints") = New JArray(BuildTemuTitle(p.Title))
             goodsBasic("goodsGallery") = JObject.FromObject(New With {
-                .goodsCarouselImage = imgArr.ToArray,
-                .detailImage = imgArr.ToArray
+                .goodsCarouselImage = images,
+                .detailImage = images
             })
             goodsBasic("brand") = brandObj
             If skuCode IsNot Nothing Then goodsBasic("externalGoodsId") = skuCode
@@ -1354,7 +1335,7 @@ Public Class TemuService
             End If
 
             Dim skuObj As New JObject()
-            skuObj("images") = New JArray(imgArr.ToArray)
+            skuObj("images") = New JArray(images)
             skuObj("quantity") = CLng(quantity)
             If skuCode IsNot Nothing Then skuObj("externalSkuId") = skuCode
             skuObj("price") = JObject.FromObject(New With {
@@ -1373,9 +1354,6 @@ Public Class TemuService
                 .parentSpecId = spec.parentSpecId,
                 .specId = spec.specId
             }))
-
-            ',
-            '.specName = spec.specName
 
             If Not String.IsNullOrWhiteSpace(p.Ean) Then
                 skuObj("barCodeType") = 1
@@ -2100,7 +2078,16 @@ Public Class TemuService
         Next
         Return map
     End Function
-
+    Private Shared Function CleanImages(images As List(Of String)) As String()
+        Dim result As New List(Of String)
+        If images Is Nothing Then Return result.ToArray()
+        For Each img As String In images
+            If String.IsNullOrWhiteSpace(img) Then Continue For
+            Dim trimmed = img.Trim()
+            If Not result.Contains(trimmed) Then result.Add(trimmed)
+        Next
+        Return result.ToArray()
+    End Function
 End Class
 
 Public Class TemuCreateResult
