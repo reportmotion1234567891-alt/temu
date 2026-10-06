@@ -328,7 +328,6 @@ Public Class TemuOrderService
             r.SkuId.ToString(),
             CsvEscape(r.ExtCode),
             CsvEscape(r.GoodsName),
-            CsvEscape(r.GoodsName),
             CsvEscape(r.Spec),
             r.Quantity.ToString(),
             r.OriginalOrderQuantity.ToString(),
@@ -404,10 +403,15 @@ Public Class TemuOrderService
     End Sub
     Private Shared Function CsvEscape(s As String) As String
         If s Is Nothing Then Return ""
-        If s.Contains(",") OrElse s.Contains("""") OrElse s.Contains(vbCrLf) OrElse s.Contains(vbLf) Then
-            Return """" & s.Replace("""", """""") & """"
-        End If
-        Return s
+        Dim clean = s.Replace(",", " ")
+        clean = clean.Replace(vbCrLf, " ")
+        clean = clean.Replace(vbCr, " ")
+        clean = clean.Replace(vbLf, " ")
+        clean = clean.Replace("""", "")
+        While clean.Contains("  ")
+            clean = clean.Replace("  ", " ")
+        End While
+        Return clean.Trim()
     End Function
 
     Public Shared Async Function GetLogisticsCompanies(Optional regionId As Long = 76) As Task(Of JObject)
