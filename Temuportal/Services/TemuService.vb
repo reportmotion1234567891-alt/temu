@@ -31,6 +31,8 @@ Public Class TemuService
     Private Const RefPidSpeedRating As Long = 7398
     Private Const RefPidAspectRatio As Long = 8552
 
+    Private Shared EnergyFixRunning As Boolean = False
+
     Private Const UnitInch As Long = 15
     Private Const UnitIndex As Long = 254
     Private Const UnitPercent As Long = 57
@@ -261,6 +263,292 @@ Public Class TemuService
         Next
 
         Console.WriteLine("=== DumpTemplateProperties DONE ===")
+    End Function
+
+    Public Shared Async Function EnergyFixBatch() As Task
+        If EnergyFixRunning Then
+            Console.WriteLine("Energy fix batch already running - aborting duplicate start")
+            Return
+        End If
+        EnergyFixRunning = True
+
+        Try
+            Console.WriteLine("=== ENERGY FIX BATCH (" & ActiveStoreSuffix() & ") ===")
+
+            Dim createdPath = IO.Path.Combine(OutputDir(), "created_" & ActiveStoreSuffix() & ".txt")
+            If Not IO.File.Exists(createdPath) Then
+                Console.WriteLine("created file not found: " & createdPath)
+                Return
+            End If
+
+            Dim done = LoadLineSet(EnergyDonePath())
+            Dim noData = LoadLineSet(EnergyNoDataPath())
+            Console.WriteLine("Already done: " & done.Count & " | known missing in EPREL: " & noData.Count)
+
+            Dim map = LoadEprelMap()
+            Console.WriteLine("Stored eprel ids: " & map.Count)
+            Await RefreshEprelMapFromFeed(map)
+            SaveEprelMap(map)
+
+            Dim skuByGoods As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+            Dim order As New List(Of String)
+            For Each line In IO.File.ReadAllLines(createdPath)
+                Dim parts = line.Split(","c)
+                If parts.Length < 2 Then Continue For
+                Dim sku = parts(0).Trim()
+                Dim gid = parts(1).Trim()
+                If sku = "" OrElse gid = "" Then Continue For
+                If skuByGoods.ContainsKey(gid) Then Continue For
+                skuByGoods(gid) = sku
+                order.Add(gid)
+            Next
+
+            Console.WriteLine("Products in created file: " & order.Count)
+
+            Dim ok = 0
+            Dim inReview = 0
+            Dim missingEprel = 0
+            Dim noEprelData = 0
+            Dim failed = 0
+            Dim skipped = 0
+            Dim i = 0
+
+            For Each gid In order
+                i += 1
+
+                If done.Contains(gid) Then
+                    skipped += 1
+                    Continue For
+                End If
+                If noData.Contains(gid) Then
+                    skipped += 1
+                    Continue For
+                End If
+
+                Dim sku = skuByGoods(gid)
+                Dim eprelId As String = Nothing
+                If Not map.TryGetValue(sku, eprelId) Then
+                    missingEprel += 1
+                    IO.File.AppendAllText(EnergyNoEprelPath(), sku & "," & gid & Environment.NewLine)
+                    Continue For
+                End If
+
+                Dim goodsId As Long
+                If Not Long.TryParse(gid, goodsId) Then Continue For
+
+                Dim code = Await SetEnergyLabelByEprel(goodsId, eprelId)
+
+                If code = 0 Then
+                    ok += 1
+                    done.Add(gid)
+                    IO.File.AppendAllText(EnergyDonePath(), gid & Environment.NewLine)
+                ElseIf code = 7000000 Then
+                    inReview += 1
+                ElseIf code = 150011053 Then
+                    noEprelData += 1
+                    noData.Add(gid)
+                    IO.File.AppendAllText(EnergyNoDataPath(), gid & Environment.NewLine)
+                Else
+                    failed += 1
+                    Console.WriteLine("FAIL sku " & sku & " goodsId " & gid & " -> errorCode " & code)
+                End If
+
+                If i Mod 25 = 0 Then
+                    Console.WriteLine("progress " & i & "/" & order.Count & " | ok=" & ok & " review=" & inReview & " noEprelData=" & noEprelData & " noEprelId=" & missingEprel & " fail=" & failed)
+                End If
+
+                Await Task.Delay(800)
+            Next
+
+            Console.WriteLine("")
+            Console.WriteLine("=== ENERGY FIX BATCH DONE ===")
+            Console.WriteLine("ok (label set)      : " & ok)
+            Console.WriteLine("still in review     : " & inReview & "  (retry next run)")
+            Console.WriteLine("no EPREL id in feed : " & missingEprel & "  -> " & EnergyNoEprelPath())
+            Console.WriteLine("EPREL has no data   : " & noEprelData & "  -> " & EnergyNoDataPath() & " (manual Excel upload)")
+            Console.WriteLine("other failures      : " & failed)
+            Console.WriteLine("skipped (done)      : " & skipped)
+
+        Catch ex As Exception
+            Console.WriteLine("Energy fix batch error: " & ex.Message)
+        Finally
+            EnergyFixRunning = False
+        End Try
+    End Function
+    Public Shared Async Function GetExtraComplianceTemplate(catId As Long, goodsId As Long) As Task(Of JObject)
+        Dim req As New JObject()
+        req("catId") = catId
+        If goodsId > 0 Then req("goodsId") = goodsId
+
+        Dim res = Await SendRequestFlat("bg.local.goods.compliance.extra.template.get", req)
+
+        If Not res("success").Value(Of Boolean)() Then
+            Console.WriteLine($"extra.template.get FAILED - [{res("errorCode")}] {res("errorMsg")}")
+            Return Nothing
+        End If
+
+        Return res
+    End Function
+
+    Public Shared Async Function DumpComplianceRequirements(catId As Long, goodsId As Long) As Task
+        Console.WriteLine("=== DumpComplianceRequirements catId=" & catId & " goodsId=" & goodsId & " ===")
+
+        Dim res = Await GetExtraComplianceTemplate(catId, goodsId)
+        If res Is Nothing Then Return
+
+        Dim resultObj = TryCast(res("result"), JObject)
+        If resultObj Is Nothing Then
+            Console.WriteLine("no result")
+            Return
+        End If
+
+        Dim infoList = TryCast(resultObj("extraComplianceInfoList"), JArray)
+        If infoList IsNot Nothing Then
+            Console.WriteLine("--- extraComplianceInfoList ---")
+            For Each info In infoList
+                Dim t = If(info("type") IsNot Nothing, info("type").ToString(), "-")
+                Dim req = If(info("isRequired") IsNot Nothing, info("isRequired").ToString(), "-")
+                Console.WriteLine("  type=" & t & " required=" & req)
+            Next
+        End If
+
+        Dim tplList = TryCast(resultObj("extraTemplateList"), JArray)
+        If tplList IsNot Nothing Then
+            Console.WriteLine("--- extraTemplateList (" & tplList.Count & ") ---")
+            For Each tpl In tplList
+                Dim id = If(tpl("templateId") IsNot Nothing, tpl("templateId").ToString(), "-")
+                Dim name = If(tpl("checkTypeName") IsNot Nothing, tpl("checkTypeName").ToString(), "-")
+                Dim req = If(tpl("isRequired") IsNot Nothing, tpl("isRequired").ToString(), "-")
+                Dim desc = If(tpl("templateDesc") IsNot Nothing, tpl("templateDesc").ToString(), "")
+                Console.WriteLine("")
+                Console.WriteLine("templateId=" & id & " required=" & req & " name='" & name & "'")
+                If desc <> "" Then Console.WriteLine("  desc: " & desc)
+
+                Dim props = TryCast(tpl("templatePropertyDTOList"), JArray)
+                If props Is Nothing Then Continue For
+                For Each prp In props
+                    Dim refPid = If(prp("refPid") IsNot Nothing, prp("refPid").ToString(), "-")
+                    Dim pname = If(prp("propertyName") IsNot Nothing, prp("propertyName").ToString(), "-")
+                    Dim ctrl = If(prp("controlType") IsNot Nothing, prp("controlType").ToString(), "-")
+                    Console.WriteLine("    refPid=" & refPid & " name='" & pname & "' controlType=" & ctrl)
+                Next
+            Next
+        End If
+
+        Console.WriteLine("=== DONE ===")
+    End Function
+
+
+    Private Shared Function OutputDir() As String
+        Return IO.Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
+    End Function
+
+    Private Shared Function EnergyDonePath() As String
+        Return IO.Path.Combine(OutputDir(), "energy_done_" & ActiveStoreSuffix() & ".txt")
+    End Function
+
+    Private Shared Function EnergyNoDataPath() As String
+        Return IO.Path.Combine(OutputDir(), "energy_nodata_" & ActiveStoreSuffix() & ".txt")
+    End Function
+
+    Private Shared Function EnergyNoEprelPath() As String
+        Return IO.Path.Combine(OutputDir(), "energy_noeprel_" & ActiveStoreSuffix() & ".txt")
+    End Function
+
+    Private Shared Function EprelMapPath() As String
+        Return IO.Path.Combine(OutputDir(), "eprel_map_" & ActiveStoreSuffix() & ".txt")
+    End Function
+
+    Private Shared Function LoadLineSet(path As String) As HashSet(Of String)
+        Dim result As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        If Not IO.File.Exists(path) Then Return result
+        For Each line In IO.File.ReadAllLines(path)
+            Dim t = line.Trim()
+            If t <> "" Then result.Add(t)
+        Next
+        Return result
+    End Function
+
+    Private Shared Function LoadEprelMap() As Dictionary(Of String, String)
+        Dim map As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim path = EprelMapPath()
+        If Not IO.File.Exists(path) Then Return map
+        For Each line In IO.File.ReadAllLines(path)
+            Dim parts = line.Split(","c)
+            If parts.Length < 2 Then Continue For
+            Dim sku = parts(0).Trim()
+            Dim eprel = parts(1).Trim()
+            If sku <> "" AndAlso eprel <> "" Then map(sku) = eprel
+        Next
+        Return map
+    End Function
+
+    Private Shared Sub SaveEprelMap(map As Dictionary(Of String, String))
+        Dim sb As New StringBuilder()
+        For Each kv In map
+            sb.AppendLine(kv.Key & "," & kv.Value)
+        Next
+        IO.File.WriteAllText(EprelMapPath(), sb.ToString(), Encoding.UTF8)
+    End Sub
+
+    Private Shared Async Function RefreshEprelMapFromFeed(map As Dictionary(Of String, String)) As Task(Of Integer)
+        Dim added = 0
+        Dim products As List(Of CsvProduct)
+        Try
+            products = Await CsvParser.DownloadAndParse()
+        Catch ex As Exception
+            Console.WriteLine("Feed download failed - using stored eprel map only: " & ex.Message)
+            Return 0
+        End Try
+        If products Is Nothing Then Return 0
+        For Each p In products
+            If String.IsNullOrWhiteSpace(p.Sku) Then Continue For
+            Dim eprel = EprelService.ExtractEprelId(p.EnergyLabelUrl)
+            If String.IsNullOrWhiteSpace(eprel) Then Continue For
+            Dim sku = p.Sku.Trim()
+            If Not map.ContainsKey(sku) Then added += 1
+            map(sku) = eprel.Trim()
+        Next
+        Console.WriteLine("Feed scanned: " & products.Count & " rows, " & added & " new eprel ids")
+        Return added
+    End Function
+
+    Public Shared Async Function SetEnergyLabelByEprel(goodsId As Long, eprelId As String) As Task(Of Integer)
+        If String.IsNullOrWhiteSpace(eprelId) Then Return -1
+
+        Dim energyLabel As New JObject()
+        energyLabel("eprelId") = eprelId.Trim()
+        energyLabel("agreeAuthorization") = True
+
+        Dim certTypeStr = ConfigurationManager.AppSettings("TemuEnergyCertType")
+        Dim certTypeVal As Integer
+        If Not Integer.TryParse(certTypeStr, certTypeVal) Then certTypeVal = 78
+
+        Dim certDetail As New JObject()
+        certDetail("certType") = certTypeVal
+        certDetail("skip") = False
+        certDetail("energyLabel") = energyLabel
+
+        Dim certificateInfo As New JObject()
+        certificateInfo("certificateDetailList") = New JArray(certDetail)
+
+        Dim req As New JObject()
+        req("goodsId") = goodsId
+        req("certificateInfo") = certificateInfo
+
+        Dim res As JObject
+        Try
+            res = Await SendRequestFlat("bg.local.goods.compliance.edit", req)
+        Catch ex As Exception
+            Console.WriteLine("Energy label request error goodsId " & goodsId & ": " & ex.Message)
+            Return -2
+        End Try
+
+        If res("success") IsNot Nothing AndAlso res("success").Value(Of Boolean)() Then Return 0
+
+        Dim ec As Integer = -1
+        If res("errorCode") IsNot Nothing Then Integer.TryParse(res("errorCode").ToString(), ec)
+        Return ec
     End Function
 
     Public Shared Async Function GenerateSpecId(catId As Long, parentSpecId As Long, childSpecName As String) As Task(Of Long)

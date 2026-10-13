@@ -204,6 +204,16 @@ Public Class Form1
         MessageBox.Show(If(uploaded <> "", "Uploaded: " & uploaded, "Upload FAILED"))
     End Sub
 
+    Private Async Sub btnEnergyFix_Click(sender As Object, e As EventArgs) Handles btnEnergyFix.Click
+        btnEnergyFix.Enabled = False
+        Try
+            Await TemuService.EnergyFixBatch()
+        Finally
+            btnEnergyFix.Enabled = True
+        End Try
+        MessageBox.Show("Energy fix batch finished - check console for counts")
+    End Sub
+
     Private Async Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
         Button3.Enabled = False
         Dim req As New Newtonsoft.Json.Linq.JObject()

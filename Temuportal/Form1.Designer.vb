@@ -32,6 +32,7 @@ Partial Class Form1
         ProductIntegrationTimer = New Timer(components)
         FrBtn = New Button()
         chkOrderTracking = New CheckBox()
+        btnEnergyFix = New Button()
         SuspendLayout()
         ' 
         ' Button1
@@ -107,11 +108,21 @@ Partial Class Form1
         chkOrderTracking.Text = "chkOrderTracking"
         chkOrderTracking.UseVisualStyleBackColor = True
         ' 
+        ' btnEnergyFix
+        ' 
+        btnEnergyFix.Location = New Point(568, 312)
+        btnEnergyFix.Name = "btnEnergyFix"
+        btnEnergyFix.Size = New Size(192, 83)
+        btnEnergyFix.TabIndex = 8
+        btnEnergyFix.Text = "ElabelFix"
+        btnEnergyFix.UseVisualStyleBackColor = True
+        ' 
         ' Form1
         ' 
         AutoScaleDimensions = New SizeF(7F, 15F)
         AutoScaleMode = AutoScaleMode.Font
         ClientSize = New Size(800, 450)
+        Controls.Add(btnEnergyFix)
         Controls.Add(chkOrderTracking)
         Controls.Add(FrBtn)
         Controls.Add(GpsrBtn)
@@ -135,5 +146,6 @@ Partial Class Form1
     Friend WithEvents ProductIntegrationTimer As Timer
     Friend WithEvents FrBtn As Button
     Friend WithEvents chkOrderTracking As CheckBox
+    Friend WithEvents btnEnergyFix As Button
 
 End Class
